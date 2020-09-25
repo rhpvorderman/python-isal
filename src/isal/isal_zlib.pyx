@@ -30,11 +30,12 @@ from libc.stdint cimport UINT64_MAX, UINT32_MAX, uint32_t
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 from cpython.buffer cimport PyBUF_READ, PyBUF_C_CONTIGUOUS, PyObject_GetBuffer, \
     PyBuffer_Release
-from cpython.bytes cimport PyBytes_FromStringAndSize
-
+from cpython.bytes cimport PyBytes_FromStringAndSize, _PyBytes_Resize
+from cpython.object cimport PyObject
 
 cdef extern from "<Python.h>":
     const Py_ssize_t PY_SSIZE_T_MAX
+    cdef char* PyBytes_AS_STRING(PyObject * string)
 
 ISAL_BEST_SPEED = ISAL_DEF_MIN_LEVEL
 ISAL_BEST_COMPRESSION = ISAL_DEF_MAX_LEVEL
@@ -126,6 +127,51 @@ cdef unsigned int unsigned_int_min(unsigned int a, unsigned int b):
 cdef void arrange_input_buffer(stream_or_state *stream, Py_ssize_t *remains):
     stream.avail_in = unsigned_int_min(<unsigned int>remains[0], UINT32_MAX)
     remains[0] -= stream.avail_in
+
+cdef Py_ssize_t arrange_output_buffer_with_maximum(
+    stream_or_state *stream,
+    PyObject **buffer,
+    Py_ssize_t length,
+    Py_ssize_t max_length):
+
+    cdef Py_ssize_t occupied
+    cdef Py_ssize_t new_length
+
+    if buffer[0] == NULL:
+        new_buffer = PyBytes_FromStringAndSize(NULL, length)
+        buffer[0] = <PyObject *>new_buffer
+        if (buffer[0] == NULL):
+            return -1
+        occupied=0
+    else:
+        occupied = stream.next_out - <unsigned char*>PyBytes_AS_STRING(buffer[0])
+        if length == occupied:
+            assert length <= max_length
+            if length == max_length:
+                return -2
+            if length <= (max_length >> 1):
+                new_length = length << 1
+            else:
+                new_length = max_length
+            if (_PyBytes_Resize(buffer, new_length) < 0):
+                return -1
+            length = new_length
+
+    stream.avail_out = unsigned_int_min(<unsigned int>(length-occupied), UINT32_MAX)
+    stream.next_out = <unsigned char *>PyBytes_AS_STRING(buffer[0]) + occupied
+
+    return length
+
+cdef Py_ssize_t arrange_output_buffer(isal_zstream *stream,
+                                             PyObject **buffer,
+                                             Py_ssize_t length):
+
+    cdef Py_ssize_t ret
+    ret = arrange_output_buffer_with_maximum(stream, buffer, length,
+                                             PY_SSIZE_T_MAX)
+    if ret == -2:
+        raise MemoryError()
+    return ret
 
 def compress(data,
              int level=ISAL_DEFAULT_COMPRESSION_I,
