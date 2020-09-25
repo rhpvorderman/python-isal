@@ -30,12 +30,13 @@ from libc.stdint cimport UINT64_MAX, UINT32_MAX, uint32_t
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 from cpython.buffer cimport PyBUF_READ, PyBUF_C_CONTIGUOUS, PyObject_GetBuffer, \
     PyBuffer_Release
-from cpython.bytes cimport PyBytes_FromStringAndSize, _PyBytes_Resize
+from cpython.bytes cimport  _PyBytes_Resize
 from cpython.object cimport PyObject
 
 cdef extern from "<Python.h>":
     const Py_ssize_t PY_SSIZE_T_MAX
     cdef char* PyBytes_AS_STRING(PyObject * string)
+    cdef PyObject * PyBytes_FromStringAndSize(char *v, Py_ssize_t len)
 
 ISAL_BEST_SPEED = ISAL_DEF_MIN_LEVEL
 ISAL_BEST_COMPRESSION = ISAL_DEF_MAX_LEVEL
@@ -141,20 +142,20 @@ cdef Py_ssize_t arrange_output_buffer_with_maximum(
         new_buffer = PyBytes_FromStringAndSize(NULL, length)
         buffer[0] = <PyObject *>new_buffer
         if (buffer[0] == NULL):
-            return -1
+            raise MemoryError()
         occupied=0
     else:
         occupied = stream.next_out - <unsigned char*>PyBytes_AS_STRING(buffer[0])
         if length == occupied:
             assert length <= max_length
             if length == max_length:
-                return -2
+                raise MemoryError()
             if length <= (max_length >> 1):
                 new_length = length << 1
             else:
                 new_length = max_length
             if (_PyBytes_Resize(buffer, new_length) < 0):
-                return -1
+                raise MemoryError()
             length = new_length
 
     stream.avail_out = unsigned_int_min(<unsigned int>(length-occupied), UINT32_MAX)
@@ -473,11 +474,11 @@ cdef class Decompress:
                 left_size = <unsigned char*>data.buf + data.len - self.stream.next_in
                 if left_size > (PY_SSIZE_T_MAX - old_size):
                     raise MemoryError()
-                new_data = PyBytes_FromStringAndSize(<char *>self.stream.next_in, left_size)
+                new_data = <object>PyBytes_FromStringAndSize(<char *>self.stream.next_in, left_size)
                 self.unused_data += new_data
         if self.stream.avail_in > 0 or self.unconsumed_tail:
             left_size = <unsigned char*>data.buf + data.len - self.stream.next_in
-            new_data = PyBytes_FromStringAndSize(<char *>self.stream.next_in, left_size)
+            new_data = <object>PyBytes_FromStringAndSize(<char *>self.stream.next_in, left_size)
             self.unconsumed_tail = new_data
 
     def decompress(self, data, Py_ssize_t max_length = 0):
