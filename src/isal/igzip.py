@@ -25,6 +25,7 @@ import argparse
 import gzip
 import io
 import os
+import struct
 import sys
 import datetime
 import time
@@ -57,17 +58,17 @@ class GzipHeader(typing.NamedTuple):
     os: int
     _xlen: Optional[int]
     xtra: Optional[bytes]
-    fname: Optional[str]
+    fname: Optional[bytes]
     fcomment: Optional[bytes]
     fhcrc: Optional[int]
 
     def __init__(self,
                  data_is_ascii: bool = False,
                  mtime: int = 0,
-                 compress_level: int = _COMPRESS_LEVEL_TRADEOFF,
+                 xfl = 0,
                  os: int = 255,  # Unknown OS
                  xtra: bytes = None,
-                 fname: Optional[str] = None,
+                 fname: Optional[bytes] = None,
                  fcomment: Optional[bytes] = None,
                  set_crc: bool = False):
 
@@ -77,7 +78,7 @@ class GzipHeader(typing.NamedTuple):
         self.mtime = mtime
         # Python isal has no 'best' compress level comparable to zlib.
         # So only medium compression or fast are supported.
-        self.xfl = 4 if compress_level == _COMPRESS_LEVEL_FAST else 0
+        self.xfl = xfl
         self.os = os
         if data_is_ascii:
             self.flag += FTEXT
@@ -91,30 +92,61 @@ class GzipHeader(typing.NamedTuple):
         if fcomment:
             self.flag += FCOMMENT
             self.fcomment = fcomment
+        self.fhcrc = None
         if set_crc:
             self.flag += FHCRC
-            header_bytes = self._magic[:]
-            header_bytes += self.method.to_bytes(1, "little", signed=False)
-            header_bytes += self.flag.to_bytes(1, "little", signed=False)
-            header_bytes += self.mtime.to_bytes(4, "little", signed=False)
-            header_bytes += self.xfl.to_bytes(1, "little", signed=False)
-            header_bytes += self.flag.to_bytes(1, "little", signed=False)
-            if self.xtra:
-                header_bytes += self._xlen.to_bytes(2, "little", signed=False)
-                header_bytes += self.xtra
-            if self.fname:
-                header_bytes += self.fname.encode("latin-1") + b'\x00'
-            if self.fcomment:
-                header_bytes += self.fcomment + b'\x00'
+            self.fhcrc = isal_zlib.crc32(bytes(self))
 
+    def __bytes__(self):
+        header_bytes = self._magic[:]
+        header_bytes += self.method.to_bytes(1, "little", signed=False)
+        header_bytes += self.flag.to_bytes(1, "little", signed=False)
+        header_bytes += self.mtime.to_bytes(4, "little", signed=False)
+        header_bytes += self.xfl.to_bytes(1, "little", signed=False)
+        header_bytes += self.flag.to_bytes(1, "little", signed=False)
+        if self.xtra:
+            header_bytes += self._xlen.to_bytes(2, "little", signed=False)
+            header_bytes += self.xtra
+        if self.fname:
+            header_bytes += self.fname + b'\x00'
+        if self.fcomment:
+            header_bytes += self.fcomment + b'\x00'
+        if self.fhcrc:
+            header_bytes += self.fhcrc
+        return header_bytes
 
+    def __len__(self):
+        return len(self.__bytes__())
 
     @classmethod
     def from_bytes(cls, bts: bytes):
         # Header should have at least 10 bytes
         if len(bytes) < 10:
             raise BadGzipFile("Not a gzipped file.")
-        magic = bts[0:1]
+        magic, method, flags, mtime, xfl, os = struct.unpack("<HBBIBB", bts[:10], )
+        if magic != 0x8b1f:
+            raise BadGzipFile(f"Not a gzipped file ({repr(magic)})")
+        if method != 8:
+            raise BadGzipFile("Unknown compression method")
+        pos = 10
+        if flags & FHEXTRA:
+            xlen = int.from_bytes(bts[pos:pos+2], "little", signed=False)
+            xtra = bts[pos+2: xlen] # Do not include null byte
+            pos += xlen + 2
+        if flags & FNAME:
+            fname_end = bts.index(b"\x00", pos)
+            fname = bts[pos:fname_end-1]
+            pos = fname_end
+        if flags & FCOMMENT:
+            fcomment_end = bts.index(b"\x00", pos)
+            fcomment = bts[pos:fcomment_end-1]
+            pos = fcomment_end
+        if flags & FHCRC:
+            fhcrc = int.from_bytes(bts[pos:pos+2], "little", signed=False)
+            fhcrc_check = isal_zlib.crc32(bts[:pos]) & 0xFFFFFFFF
+            if fhcrc != fhcrc_check:
+                raise BadGzipFile("Header checksum check failed")
+        return cls.__new__((bts[:2], method, flags, ))
 
     def __len__(self):
         length = 10
