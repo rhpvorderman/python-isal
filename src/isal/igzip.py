@@ -26,6 +26,10 @@ import gzip
 import io
 import os
 import sys
+import datetime
+import time
+import typing
+from typing import Optional
 
 from . import isal_zlib
 
@@ -40,6 +44,81 @@ try:
 except AttributeError:  # Versions lower than 3.8 do not have BadGzipFile
     BadGzipFile = OSError
 
+
+FTEXT, FHCRC, FHEXTRA, FNAME, FCOMMENT = 1, 2, 4, 8, 16
+
+
+class GzipHeader(typing.NamedTuple):
+    _magic: bytes
+    method: int
+    flag: int
+    mtime: int
+    xfl: int
+    os: int
+    _xlen: Optional[int]
+    xtra: Optional[bytes]
+    fname: Optional[str]
+    fcomment: Optional[bytes]
+    fhcrc: Optional[int]
+
+    def __init__(self,
+                 data_is_ascii: bool = False,
+                 mtime: int = 0,
+                 compress_level: int = _COMPRESS_LEVEL_TRADEOFF,
+                 os: int = 255,  # Unknown OS
+                 xtra: bytes = None,
+                 fname: Optional[str] = None,
+                 fcomment: Optional[bytes] = None,
+                 set_crc: bool = False):
+
+        self.flag = 0
+        self._magic = b"\x1f\x8b"
+        self.method = 8
+        self.mtime = mtime
+        # Python isal has no 'best' compress level comparable to zlib.
+        # So only medium compression or fast are supported.
+        self.xfl = 4 if compress_level == _COMPRESS_LEVEL_FAST else 0
+        self.os = os
+        if data_is_ascii:
+            self.flag += FTEXT
+        if xtra:
+            self.flag += FHEXTRA
+            self._xlen = len(xtra)
+            self.xtra = xtra
+        if fname:
+            self.flag += FNAME
+            self.fname = fname
+        if fcomment:
+            self.flag += FCOMMENT
+            self.fcomment = fcomment
+        if set_crc:
+            self.flag += FHCRC
+            header_bytes = self._magic[:]
+            header_bytes += self.method.to_bytes(1, "little", signed=False)
+            header_bytes += self.flag.to_bytes(1, "little", signed=False)
+            header_bytes += self.mtime.to_bytes(4, "little", signed=False)
+            header_bytes += self.xfl.to_bytes(1, "little", signed=False)
+            header_bytes += self.flag.to_bytes(1, "little", signed=False)
+            if self.xtra:
+                header_bytes += self._xlen.to_bytes(2, "little", signed=False)
+                header_bytes += self.xtra
+            if self.fname:
+                header_bytes += self.fname.encode("latin-1") + b'\x00'
+            if self.fcomment:
+                header_bytes += self.fcomment + b'\x00'
+
+
+
+    @classmethod
+    def from_bytes(cls, bts: bytes):
+        # Header should have at least 10 bytes
+        if len(bytes) < 10:
+            raise BadGzipFile("Not a gzipped file.")
+        magic = bts[0:1]
+
+    def __len__(self):
+        length = 10
+        return length
 
 # The open method was copied from the CPython source with minor adjustments.
 def open(filename, mode="rb", compresslevel=_COMPRESS_LEVEL_TRADEOFF,
