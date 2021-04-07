@@ -268,6 +268,10 @@ cdef class IgzipDecompressor:
     cdef size_t input_buffer_size
     cdef Py_ssize_t avail_in_real
 
+    def __dealloc__(self):
+        if self.input_buffer != NULL:
+            PyMem_Free(self.input_buffer)
+
     def __cinit__(self,
                   flag=ISAL_DEFLATE,
                   hist_bits=ISAL_DEF_MAX_HIST_BITS,
