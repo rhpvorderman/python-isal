@@ -18,6 +18,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+# cython: language_level=3
+# cython: binding=True
+
 cdef extern from "<isa-l/igzip_lib.h>":
     # Deflate compression standard defines
     int ISAL_DEF_MAX_HDR_SIZE
@@ -490,16 +493,16 @@ cdef:
 
 cdef int mem_level_to_bufsize(int compression_level, int mem_level, unsigned int *bufsize)
 
-cpdef compress(data,
-             int level= ?,
-             int flag = ?,
-             int mem_level = ?,
-             int hist_bits = ?,
+cdef _compress(data,
+             int level,
+             int flag,
+             int mem_level,
+             int hist_bits,
             )
 
-cpdef decompress(data,
-                 int flag = ?,
-                 int hist_bits= ?,
-                 Py_ssize_t bufsize= ?)
+cdef _decompress(data,
+                 int flag,
+                 int hist_bits,
+                 Py_ssize_t bufsize)
 
 cdef bytes view_bitbuffer(inflate_state * stream)

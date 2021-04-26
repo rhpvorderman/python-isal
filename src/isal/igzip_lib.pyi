@@ -53,3 +53,10 @@ def compress(data, level: int = ISAL_DEFAULT_COMPRESSION,
 def decompress(data, flag: int = DECOMP_DEFLATE,
                hist_bits: int = MAX_HIST_BITS,
                bufsize: int = DEF_BUF_SIZE) -> bytes: ...
+
+class IgzipDecompressor:
+    unused_data: bytes
+    needs_input: bool
+    eof: bool
+
+    def decompress(self, data, max_length = -1) -> bytes: ...

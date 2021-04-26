@@ -36,11 +36,6 @@ SYSTEM_IS_UNIX = (sys.platform.startswith("linux") or
 SYSTEM_IS_WINDOWS = sys.platform.startswith("win")
 
 
-def default_compiler_directives():
-    return dict(language_level="3",
-                binding=True)
-
-
 class IsalExtension(Extension):
     """Custom extension to allow for targeted modification."""
     pass
@@ -110,23 +105,20 @@ class BuildIsalExt(build_ext):
                                              "include")]
             # -fPIC needed for proper static linking
             ext.extra_compile_args = ["-fPIC"]
-
-        # Import cython here so python setup.py can be used without
-        # installing cython.
-        from Cython.Build import cythonize
-        compiler_directives = default_compiler_directives()
-        line_tracing_enabled = os.getenv("CYTHON_COVERAGE") is not None
-        if line_tracing_enabled:
-            # Add cython directives for coverage support.
-            compiler_directives.update(linetrace=True)
-        cythonized_exts = cythonize(
-            ext, compiler_directives=compiler_directives)
-
-        for cython_ext in cythonized_exts:
-            if line_tracing_enabled:
+        if os.getenv("CYTHON_COVERAGE") is not None:
+            # Import cython here so python setup.py can be used without
+            # installing cython.
+            from Cython.Build import cythonize
+            # Add cython directives and macros for coverage support.
+            cythonized_exts = cythonize(ext, compiler_directives=dict(
+                linetrace=True
+            ))
+            for cython_ext in cythonized_exts:
                 cython_ext.define_macros = [("CYTHON_TRACE_NOGIL", "1")]
-            cython_ext._needs_stub = False
-            super().build_extension(cython_ext)
+                cython_ext._needs_stub = False
+                super().build_extension(cython_ext)
+            return
+        super().build_extension(ext)
 
 
 # Use a cache to prevent isa-l from being build twice. According to the

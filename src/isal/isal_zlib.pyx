@@ -18,6 +18,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+# cython: language_level=3
+# cython: binding=True
+
 """
 Implementation of the zlib module using the ISA-L libraries.
 """
@@ -82,8 +85,8 @@ from .igzip_lib cimport(
     view_bitbuffer,)
 
 # Alias igzip_lib compress and decompress functions
-from .igzip_lib cimport compress as igzip_compress
-from .igzip_lib cimport decompress as igzip_decompress
+from .igzip_lib cimport _compress as igzip_compress
+from .igzip_lib cimport _decompress as igzip_decompress
 
 from . import igzip_lib
 from libc.stdint cimport UINT64_MAX, UINT32_MAX

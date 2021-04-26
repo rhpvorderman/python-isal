@@ -104,7 +104,7 @@ API-documentation: igzip
 ========================
 
 .. automodule:: isal.igzip
-   :members: compress, decompress, open
+   :members: compress, decompress, open, BadGzipFile, GzipFile, READ_BUFFER_SIZE
 
    .. autoclass:: IGzipFile
       :members:

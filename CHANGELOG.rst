@@ -7,6 +7,22 @@ Changelog
 .. This document is user facing. Please word the changes in such a way
 .. that users understand how the changes affect the new version.
 
+version 0.11.0-dev
+------------------
+In this release the ``python -m isal.igzip`` relatively slow decompression rate
+has been improved. Previously it was 19% slower than ``igzip`` when used with
+the ``-d`` flag for decompressing, now it is just 8% slower.
+
++ Reverse a bug in the build system which caused some docstring and parameter
+  information on ``igzip_lib`` and ``isal_zlib`` to disappear in the
+  documentation and the REPL.
++ Increase the buffer size for ``python -m isal.igzip`` so it is now closer
+  to speeds reached with ``igzip``.
++ Add a ``READ_BUFFER_SIZE`` attribute to ``igzip`` which allows setting the
+  amount of raw data that is read at once.
++ Add an ``igzip_lib.IgzipDecompressor`` object which can decompress without
+  using an unconsumed_tail and is therefore more efficient.
+
 version 0.10.0
 ------------------
 + Added an ``igzip_lib`` module which allows more direct access to ISA-L's
