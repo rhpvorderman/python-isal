@@ -39,6 +39,8 @@ _COMPRESS_LEVEL_FAST = isal_zlib.ISAL_BEST_SPEED
 _COMPRESS_LEVEL_TRADEOFF = isal_zlib.ISAL_DEFAULT_COMPRESSION
 _COMPRESS_LEVEL_BEST = isal_zlib.ISAL_BEST_COMPRESSION
 
+READ_BUFFER_SIZE = io.DEFAULT_BUFFER_SIZE
+
 FTEXT, FHCRC, FEXTRA, FNAME, FCOMMENT = 1, 2, 4, 8, 16
 
 try:
@@ -152,7 +154,7 @@ class IGzipFile(gzip.GzipFile):
                                                   0)
         if self.mode == gzip.READ:
             raw = _IGzipReader(self.fileobj)
-            self._buffer = io.BufferedReader(raw)
+            self._buffer = io.BufferedReader(raw, buffer_size=READ_BUFFER_SIZE)
 
     def __repr__(self):
         s = repr(self.fileobj)
@@ -241,6 +243,56 @@ class _IGzipReader(gzip._GzipReader):
         self._crc = isal_zlib.crc32(data, self._crc)
         self._stream_size += len(data)
 
+    def read(self, size=-1):
+        if size < 0:
+            return self.readall()
+        # size=0 is special because decompress(max_length=0) is not supported
+        if not size:
+            return b""
+
+        # For certain input data, a single
+        # call to decompress() may not return
+        # any data. In this case, retry until we get some data or reach EOF.
+        while True:
+            if self._decompressor.eof:
+                # Ending case: we've come to the end of a member in the file,
+                # so finish up this member, and read a new gzip header.
+                # Check the CRC and file size, and set the flag so we read
+                # a new member
+                self._read_eof()
+                self._new_member = True
+                self._decompressor = self._decomp_factory(
+                    **self._decomp_args)
+
+            if self._new_member:
+                # If the _new_member flag is set, we have to
+                # jump to the next member, if there is one.
+                self._init_read()
+                if not self._read_gzip_header():
+                    self._size = self._pos
+                    return b""
+                self._new_member = False
+
+            # Read a chunk of data from the file
+            buf = self._fp.read(READ_BUFFER_SIZE)
+
+            uncompress = self._decompressor.decompress(buf, size)
+            if self._decompressor.unconsumed_tail != b"":
+                self._fp.prepend(self._decompressor.unconsumed_tail)
+            elif self._decompressor.unused_data != b"":
+                # Prepend the already read bytes to the fileobj so they can
+                # be seen by _read_eof() and _read_gzip_header()
+                self._fp.prepend(self._decompressor.unused_data)
+
+            if uncompress != b"":
+                break
+            if buf == b"":
+                raise EOFError("Compressed file ended before the "
+                               "end-of-stream marker was reached")
+
+        self._add_read_data(uncompress)
+        self._pos += len(uncompress)
+        return uncompress
 
 # Aliases for improved compatibility with CPython gzip module.
 GzipFile = IGzipFile
@@ -418,6 +470,8 @@ def main():
     elif not args.compress and args.file is not None:
         out_file = io.open(base, "wb")
 
+    global READ_BUFFER_SIZE
+    READ_BUFFER_SIZE = args.buffer_size
     try:
         while True:
             block = in_file.read(args.buffer_size)
